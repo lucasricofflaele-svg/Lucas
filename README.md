@@ -1,4 +1,4 @@
--- L Hub (LocalScript) - Completo com Kill Switch, Base, Loja, Créditos e Intro
+-- L Hub Premium (LocalScript) - Black & Red Edition (Corrigido)
 -- Cole no Delta.
 
 local Players = game:GetService("Players")
@@ -7,30 +7,107 @@ local VirtualUser = game:GetService("VirtualUser")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+-- ============================================================
+-- ANTI-DUPLICADO (KILL SWITCH E LIMPEZA PROFUNDA)
+-- ============================================================
+if getgenv().LHubAlive then
+    getgenv().LHubAlive = false
+end
+
+task.wait(0.2) -- Dá tempo do script antigo parar os loops
+getgenv().LHubAlive = true
+
+-- Varre a CoreGui e PlayerGui destruindo TUDO que tiver o nome do Hub
+local function force_clean()
+    local function destroy_recursive(parent)
+        if not parent then return end
+        for _, obj in ipairs(parent:GetDescendants()) do
+            if obj.Name == "LHub_Premium" or obj.Name == "LHubNotifications" or obj.Name == "LHubIntro" then
+                pcall(function() obj:Destroy() end)
+            end
+        end
+    end
+    destroy_recursive(game:GetService("CoreGui"))
+    destroy_recursive(player.PlayerGui)
+end
+force_clean()
 
 -- ============================================================
 -- ESTADO GLOBAL E CONFIGURAÇÕES
 -- ============================================================
-local isAlive = true
 local isPerfectActive = false
 local isPopsActive = false
 local isEquipBestActive = false
 local isBuyActive = false
 local isSellActive = false
+local isAntiAfkActive = false
+local isFpsBoostActive = false
 local current_min_sell = 0
 local PERFECT_TIME = 1.10
+
+local food_toggles = {} 
+local foods_list = {}
+local last_notif_time = 0
+
+-- Paleta de Cores Black & Red
+local C_BG = Color3.fromRGB(15, 15, 15)
+local C_SIDEBAR = Color3.fromRGB(20, 20, 20)
+local C_PANEL = Color3.fromRGB(28, 28, 28)
+local C_RED = Color3.fromRGB(220, 30, 30)
+local C_DARK_RED = Color3.fromRGB(80, 0, 0)
+local C_TEXT = Color3.fromRGB(255, 255, 255)
+local C_TEXT_DIM = Color3.fromRGB(160, 160, 160)
+
+-- ============================================================
+-- SISTEMA DE FPS BOOST (RESTAURÁVEL)
+-- ============================================================
+local saved_data = { materials = {}, textures = {}, transparency = {}, particles = {}, lights = {} }
+
+local function enable_fps_boost()
+	if not getgenv().LHubAlive then return end
+	for _, v in ipairs(workspace:GetDescendants()) do
+		pcall(function()
+			if v:IsA("BasePart") or v:IsA("MeshPart") then
+				if not saved_data.materials[v] then
+					saved_data.materials[v] = v.Material
+					saved_data.textures[v] = v.TextureID
+				end
+				v.Material = Enum.Material.SmoothPlastic
+				if v:IsA("MeshPart") then v.TextureID = "" end
+			elseif v:IsA("Texture") or v:IsA("Decal") then
+				if not saved_data.transparency[v] then saved_data.transparency[v] = v.Transparency end
+				v.Transparency = 1
+			elseif v:IsA("ParticleEmitter") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") or v:IsA("Beam") or v:IsA("Trail") then
+				if not saved_data.particles[v] then saved_data.particles[v] = v.Enabled end
+				v.Enabled = false
+			elseif v:IsA("Light") then
+				if not saved_data.lights[v] then saved_data.lights[v] = v.Enabled end
+				v.Enabled = false
+			end
+		end)
+	end
+end
+
+local function disable_fps_boost()
+	for v, mat in pairs(saved_data.materials) do
+		if v and v.Parent then
+			pcall(function()
+				v.Material = mat
+				if v:IsA("MeshPart") and saved_data.textures[v] then v.TextureID = saved_data.textures[v] end
+			end)
+		end
+	end
+	for v, trans in pairs(saved_data.transparency) do if v and v.Parent then pcall(function() v.Transparency = trans end) end end
+	for v, enabled in pairs(saved_data.particles) do if v and v.Parent then pcall(function() v.Enabled = enabled end) end end
+	for v, enabled in pairs(saved_data.lights) do if v and v.Parent then pcall(function() v.Enabled = enabled end) end end
+	saved_data = { materials = {}, textures = {}, transparency = {}, particles = {}, lights = {} }
+end
 
 -- ============================================================
 -- FORMATAÇÃO E PARSE
 -- ============================================================
-local function format_number(n)
-	if n >= 1e12 then return string.format("%.1fT", n / 1e12) end
-	if n >= 1e9 then return string.format("%.1fB", n / 1e9) end
-	if n >= 1e6 then return string.format("%.1fM", n / 1e6) end
-	if n >= 1e3 then return string.format("%.1fK", n / 1e3) end
-	return tostring(n)
-end
-
 local function parse_abbreviated_number(str)
 	str = string.lower(str)
 	str = string.gsub(str, "%s+", "")
@@ -38,12 +115,7 @@ local function parse_abbreviated_number(str)
 	if not num then return 0 end
 	local n = tonumber(num)
 	if not n then return 0 end
-	if suffix == "k" then n = n * 1e3
-	elseif suffix == "m" then n = n * 1e6
-	elseif suffix == "b" then n = n * 1e9
-	elseif suffix == "t" then n = n * 1e12
-	elseif suffix == "q" then n = n * 1e15
-	end
+	if suffix == "k" then n = n * 1e3 elseif suffix == "m" then n = n * 1e6 elseif suffix == "b" then n = n * 1e9 elseif suffix == "t" then n = n * 1e12 elseif suffix == "q" then n = n * 1e15 end
 	return math.floor(n)
 end
 
@@ -51,9 +123,7 @@ end
 -- MÓDULOS
 -- ============================================================
 local ThrowMeter
-pcall(function()
-	ThrowMeter = require(player.PlayerScripts.Client.Controllers.ThrowMeter)
-end)
+pcall(function() ThrowMeter = require(player.PlayerScripts.Client.Controllers.ThrowMeter) end)
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
 local PlotEquipBest = Remotes and Remotes:FindFirstChild("Plot_EquipBest")
@@ -67,22 +137,119 @@ pcall(function()
 	FoodsConfig = require(ReplicatedStorage.Config.FoodsConfig)
 end)
 
+pcall(function()
+	if FoodsConfig then
+		local count = FoodsConfig.CountAll()
+		for i = 1, count do
+			local food = FoodsConfig.GetAny(i)
+			if food then
+				table.insert(foods_list, {id = i, name = food.Name or ("Comida " .. i), price = food.Price or 0})
+				food_toggles[i] = false
+			end
+		end
+	end
+end)
+if #foods_list == 0 then
+	for i = 1, 25 do
+		table.insert(foods_list, {id = i, name = "Comida " .. i, price = 0})
+		food_toggles[i] = false
+	end
+end
+
+-- ============================================================
+-- NOTIFICAÇÃO EMPILHADA
+-- ============================================================
+local notifGui = Instance.new("ScreenGui")
+notifGui.Name = "LHubNotifications"
+notifGui.ResetOnSpawn = false
+notifGui.DisplayOrder = 9999999
+pcall(function() notifGui.Parent = gethui() end)
+if not notifGui.Parent then pcall(function() notifGui.Parent = game:GetService("CoreGui") end) end
+if not notifGui.Parent then notifGui.Parent = player.PlayerGui end
+
+local notifContainer = Instance.new("Frame")
+notifContainer.Size = UDim2.new(0, 220, 1, 0)
+notifContainer.Position = UDim2.new(1, -230, 0, 20)
+notifContainer.BackgroundTransparency = 1
+notifContainer.Parent = notifGui
+
+local notifLayout = Instance.new("UIListLayout", notifContainer)
+notifLayout.Padding = UDim.new(0, 8)
+notifLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+notifLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local notifOrder = 0
+
+local function send_notification(title)
+	if not getgenv().LHubAlive then return end
+	notifOrder = notifOrder - 1
+	local holder = Instance.new("Frame")
+	holder.Size = UDim2.new(1, 0, 0, 0)
+	holder.BackgroundTransparency = 1
+	holder.LayoutOrder = notifOrder
+	holder.ClipsDescendants = true
+	holder.Parent = notifContainer
+
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.new(1, 0, 0, 50)
+	frame.Position = UDim2.new(1, 220, 0, 0)
+	frame.BackgroundColor3 = C_PANEL
+	frame.BorderSizePixel = 0
+	frame.Parent = holder
+	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+	local stroke = Instance.new("UIStroke", frame)
+	stroke.Color = C_RED
+
+	local icon = Instance.new("TextLabel")
+	icon.Size = UDim2.new(0, 30, 0, 30)
+	icon.Position = UDim2.new(0, 10, 0.5, -15)
+	icon.BackgroundColor3 = C_RED
+	icon.Text = "!"
+	icon.TextColor3 = Color3.new(1, 1, 1)
+	icon.Font = Enum.Font.GothamBlack
+	icon.TextSize = 20
+	icon.Parent = frame
+	Instance.new("UICorner", icon).CornerRadius = UDim.new(0, 6)
+
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Size = UDim2.new(1, -50, 1, 0)
+	titleLabel.Position = UDim2.new(0, 50, 0, 0)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Text = title
+	titleLabel.TextColor3 = C_RED
+	titleLabel.Font = Enum.Font.GothamBold
+	titleLabel.TextSize = 13
+	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+	titleLabel.TextWrapped = true
+	titleLabel.Parent = frame
+
+	TweenService:Create(holder, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = UDim2.new(1, 0, 0, 50) }):Play()
+	TweenService:Create(frame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = UDim2.new(0, 0, 0, 0) }):Play()
+
+	task.delay(3, function()
+		if not holder.Parent then return end
+		local tweenOut = TweenService:Create(frame, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Position = UDim2.new(1, 220, 0, 0), BackgroundTransparency = 1 })
+		TweenService:Create(stroke, TweenInfo.new(0.4), {Transparency = 1}):Play()
+		TweenService:Create(icon, TweenInfo.new(0.4), {BackgroundTransparency = 1, TextTransparency = 1}):Play()
+		TweenService:Create(titleLabel, TweenInfo.new(0.4), {TextTransparency = 1}):Play()
+		TweenService:Create(holder, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Size = UDim2.new(1, 0, 0, 0) }):Play()
+		tweenOut:Play()
+		tweenOut.Completed:Connect(function() holder:Destroy() end)
+	end)
+end
+
 -- ============================================================
 -- LOOPS DE FUNÇÃO
 -- ============================================================
 task.spawn(function()
-	while isAlive do
+	while getgenv().LHubAlive do
 		task.wait(0.5) 
-		if isPerfectActive and ThrowMeter then
-			ThrowMeter.TestAutoTap = PERFECT_TIME
-		elseif not isPerfectActive and ThrowMeter then
-			ThrowMeter.TestAutoTap = nil
-		end
+		if isPerfectActive and ThrowMeter then ThrowMeter.TestAutoTap = PERFECT_TIME elseif not isPerfectActive and ThrowMeter then ThrowMeter.TestAutoTap = nil end
 	end
 end)
 
 task.spawn(function()
-	while isAlive do
+	while getgenv().LHubAlive do
 		task.wait(0.5) 
 		if isPopsActive then
 			local trainingGui = player.PlayerGui:FindFirstChild("TrainingSequence")
@@ -92,15 +259,9 @@ task.spawn(function()
 					local botaoX2 = layer:FindFirstChild("TapBonus")
 					if botaoX2 and botaoX2.Visible then
 						local fs = getfenv and getfenv().firesignal
-						local gc = getfenv and getfenv().getconnections
 						if fs then
 							pcall(function() fs(botaoX2.Activated) end)
 							pcall(function() fs(botaoX2.MouseButton1Click) end)
-						elseif gc then
-							local ok, conns = pcall(gc, botaoX2.Activated)
-							if ok and conns then
-								for _, c in ipairs(conns) do pcall(function() c:Fire() end) end
-							end
 						end
 						pcall(function()
 							VirtualUser:CaptureController()
@@ -116,10 +277,22 @@ task.spawn(function()
 end)
 
 task.spawn(function()
-	while isAlive do
+	while getgenv().LHubAlive do
 		task.wait(2.0) 
-		if isEquipBestActive and PlotEquipBest then
-			pcall(function() PlotEquipBest:InvokeServer() end)
+		if isEquipBestActive and PlotEquipBest then pcall(function() PlotEquipBest:InvokeServer() end) end
+	end
+end)
+
+task.spawn(function()
+	while getgenv().LHubAlive do
+		task.wait(45) 
+		if isAntiAfkActive then
+			pcall(function()
+				VirtualUser:CaptureController()
+				VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+				task.wait(0.5)
+				VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+			end)
 		end
 	end
 end)
@@ -128,33 +301,26 @@ local log_label
 local function add_log(text, is_error)
 	if log_label then
 		log_label.Text = text
-		log_label.TextColor3 = is_error and Color3.fromRGB(255, 100, 100) or Color3.fromRGB(150, 255, 150)
+		log_label.TextColor3 = is_error and C_RED or Color3.fromRGB(150, 255, 150)
 	end
 end
 
 task.spawn(function()
-	while isAlive do
-		task.wait(0.8)
+	while getgenv().LHubAlive do
+		task.wait(1) 
 		
-		-- AUTO VENDER
 		if isSellActive and current_min_sell > 0 and DataController and Mutations and PlotSellAnimal then
 			local animals = DataController:Get("Animals")
 			local bestIncome = player:GetAttribute("BestIncome") or 0
-			
 			if animals and type(animals) == "table" then
 				for id, animal in pairs(animals) do
 					if type(animal) == "table" and not animal.Placed then
-						local success, income = pcall(function()
-							return Mutations.IncomeOf(animal, bestIncome)
-						end)
-						
+						local success, income = pcall(function() return Mutations.IncomeOf(animal, bestIncome) end)
 						if success and income and income > 0 then
 							if income <= current_min_sell then
-								add_log("Vendendo " .. animal.ModelName .. " (" .. format_number(income) .. "/s)...")
+								add_log("Vendendo " .. animal.ModelName .. "...")
 								pcall(function() PlotSellAnimal:InvokeServer(id) end)
 								task.wait(0.4)
-							else
-								add_log("Ignorado: " .. animal.ModelName .. " (" .. format_number(income) .. "/s) > Mínimo")
 							end
 						end
 					end
@@ -162,42 +328,59 @@ task.spawn(function()
 			end
 		end
 		
-		-- AUTO COMPRAR
-		if isBuyActive and ShopBuy and DataController and FoodsConfig then
-			local money = DataController:Get("Money") or 0
-			local owned_foods = DataController:Get("OwnedFoods") or {}
+		if isBuyActive and ShopBuy then
+			local char = player.Character
+			local hrp = char and char:FindFirstChild("HumanoidRootPart")
+			local foodShop = workspace:FindFirstChild("LocalPlotProps") and workspace.LocalPlotProps:FindFirstChild("FoodShop")
+			if not foodShop then foodShop = workspace:FindFirstChild("FoodShop", true) end
+			local target_zone = foodShop and (foodShop:FindFirstChild("ZonePad", true) or foodShop:FindFirstChild("ActivationCircle", true))
 			
-			local max_owned = 0
-			for idx, owned in pairs(owned_foods) do
-				if owned and tonumber(idx) and tonumber(idx) > max_owned then
-					max_owned = tonumber(idx)
+			if hrp and foodShop and target_zone then
+				local money = 0
+				if DataController then money = DataController:Get("Money") or 0 end
+				local next_food_to_buy = nil
+				for _, food in ipairs(foods_list) do
+					if food_toggles[food.id] then
+						local owned = false
+						if DataController then owned = DataController:GetPath("OwnedFoods." .. food.id) == true end
+						if not owned then
+							next_food_to_buy = food
+							break 
+						end
+					end
 				end
-			end
-			
-			local next_idx = max_owned + 1
-			local food_price = math.huge
-			local success_get, food = pcall(function() return FoodsConfig.GetAny(next_idx) end)
-			
-			if success_get and food and food.Price then
-				food_price = food.Price
-			end
-			
-			if money >= food_price then
-				pcall(function() ShopBuy:InvokeServer(next_idx) end)
-				task.wait(0.3)
+
+				if next_food_to_buy then
+					if money >= next_food_to_buy.price then
+						local original_cframe = hrp.CFrame
+						hrp.CFrame = CFrame.new(target_zone.Position + Vector3.new(0, 3, 0))
+						if debug_label then debug_label.Text = "Comprando: " .. next_food_to_buy.name end
+						task.wait(0.5) 
+						pcall(function() ShopBuy:InvokeServer(next_food_to_buy.id) end)
+						task.wait(0.2)
+						hrp.CFrame = original_cframe
+						if debug_label then debug_label.Text = "Comprou " .. next_food_to_buy.name end
+					else
+						if debug_label then debug_label.Text = "Sem dinheiro: " .. next_food_to_buy.name end
+						local now = os.time()
+						if now - last_notif_time >= 10 then 
+							send_notification("Sem Dinheiro")
+							last_notif_time = now
+						end
+					end
+				end
 			end
 		end
 	end
 end)
 
 -- ============================================================
--- INTERFACE (L HUB)
+-- INTERFACE PREMIUM (BLACK & RED)
 -- ============================================================
 local gui = Instance.new("ScreenGui")
-gui.Name = "LHub_Perfect"
+gui.Name = "LHub_Premium"
 gui.ResetOnSpawn = false
 gui.DisplayOrder = 9999999
-
 pcall(function() gui.Parent = gethui() end)
 if not gui.Parent then gui.Parent = player:WaitForChild("PlayerGui") end
 
@@ -205,189 +388,282 @@ local antiHideConn = RunService.RenderStepped:Connect(function()
 	if gui and not gui.Enabled then gui.Enabled = true end
 end)
 
+local floatingBtn = Instance.new("TextButton")
+floatingBtn.Size = UDim2.new(0, 50, 0, 50)
+floatingBtn.Position = UDim2.new(0.05, 0, 0.5, 0)
+floatingBtn.BackgroundColor3 = C_BG
+floatingBtn.Text = "L"
+floatingBtn.TextColor3 = C_RED
+floatingBtn.Font = Enum.Font.GothamBlack
+floatingBtn.TextSize = 30
+floatingBtn.Active = true
+floatingBtn.Draggable = true
+floatingBtn.ZIndex = 9999
+floatingBtn.Parent = gui
+Instance.new("UICorner", floatingBtn).CornerRadius = UDim.new(0, 10)
+local fStroke = Instance.new("UIStroke", floatingBtn)
+fStroke.Color = C_RED
+fStroke.Thickness = 2
+
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 280, 0, 320)
-mainFrame.Position = UDim2.new(0.5, -140, 0.5, -160)
-mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+mainFrame.Size = UDim2.new(0, 550, 0, 350)
+mainFrame.Position = UDim2.new(0.5, -275, 0.5, -175)
+mainFrame.BackgroundColor3 = C_BG
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
 mainFrame.Draggable = true
 mainFrame.Parent = gui
+mainFrame.BackgroundTransparency = 1
+mainFrame.Visible = false
 Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 10)
 
-local stroke = Instance.new("UIStroke")
-stroke.Color = Color3.fromRGB(60, 60, 80)
-stroke.Thickness = 1.5
-stroke.Parent = mainFrame
+local stroke = Instance.new("UIStroke", mainFrame)
+stroke.Color = C_RED
+stroke.Thickness = 2
+stroke.Transparency = 1
 
-local titleBar = Instance.new("Frame")
-titleBar.Size = UDim2.new(1, 0, 0, 35)
-titleBar.BackgroundColor3 = Color3.fromRGB(28, 28, 35)
-titleBar.BorderSizePixel = 0
-titleBar.Parent = mainFrame
-Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 10)
+local mainScale = Instance.new("UIScale", mainFrame)
+mainScale.Scale = 0.5
+
+local topBar = Instance.new("Frame")
+topBar.Size = UDim2.new(1, 0, 0, 35)
+topBar.BackgroundColor3 = C_DARK_RED
+topBar.BorderSizePixel = 0
+topBar.Parent = mainFrame
+Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 10)
+
+local topGradient = Instance.new("UIGradient", topBar)
+topGradient.Color = ColorSequence.new(C_DARK_RED, C_BG)
+topGradient.Rotation = 0
 
 local titleText = Instance.new("TextLabel")
-titleText.Size = UDim2.new(1, -70, 1, 0)
-titleText.Position = UDim2.new(0, 10, 0, 0)
+titleText.Size = UDim2.new(1, -80, 1, 0)
+titleText.Position = UDim2.new(0, 15, 0, 0)
 titleText.BackgroundTransparency = 1
-titleText.Text = "⚡ L Hub"
-titleText.TextColor3 = Color3.fromRGB(200, 200, 220)
-titleText.Font = Enum.Font.GothamBold
-titleText.TextSize = 14
+titleText.Text = "⛩️ L HUB - PREMIUM"
+titleText.TextColor3 = C_TEXT
+titleText.Font = Enum.Font.GothamBlack
+titleText.TextSize = 16
 titleText.TextXAlignment = Enum.TextXAlignment.Left
-titleText.Parent = titleBar
+titleText.Parent = topBar
 
 local minBtn = Instance.new("TextButton")
 minBtn.Size = UDim2.new(0, 24, 0, 24)
-minBtn.Position = UDim2.new(1, -60, 0, 5)
-minBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+minBtn.Position = UDim2.new(1, -65, 0, 5)
+minBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 minBtn.Text = "-"
-minBtn.TextColor3 = Color3.new(1, 1, 1)
+minBtn.TextColor3 = C_TEXT
 minBtn.Font = Enum.Font.GothamBold
-minBtn.TextSize = 14
-minBtn.Parent = titleBar
+minBtn.TextSize = 16
+minBtn.Parent = topBar
 Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 4)
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 24, 0, 24)
-closeBtn.Position = UDim2.new(1, -30, 0, 5)
-closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+closeBtn.Position = UDim2.new(1, -35, 0, 5)
+closeBtn.BackgroundColor3 = C_RED
 closeBtn.Text = "X"
-closeBtn.TextColor3 = Color3.new(1, 1, 1)
+closeBtn.TextColor3 = C_TEXT
 closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 14
-closeBtn.Parent = titleBar
+closeBtn.Parent = topBar
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 4)
 
-local tabBar = Instance.new("Frame")
-tabBar.Size = UDim2.new(1, -20, 0, 30)
-tabBar.Position = UDim2.new(0, 10, 0, 45)
-tabBar.BackgroundTransparency = 1
-tabBar.Parent = mainFrame
+local sidebar = Instance.new("Frame")
+sidebar.Size = UDim2.new(0, 140, 1, -35)
+sidebar.Position = UDim2.new(0, 0, 0, 35)
+sidebar.BackgroundColor3 = C_SIDEBAR
+sidebar.BorderSizePixel = 0
+sidebar.Parent = mainFrame
+local sidebarCorner = Instance.new("UICorner", sidebar)
+sidebarCorner.BottomLeftRadius = UDim.new(0, 10)
 
-local tabLayout = Instance.new("UIListLayout", tabBar)
-tabLayout.FillDirection = Enum.FillDirection.Horizontal
-tabLayout.Padding = UDim.new(0, 4)
+local sidebarLayout = Instance.new("UIListLayout", sidebar)
+sidebarLayout.Padding = UDim.new(0, 5)
+sidebarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+sidebarLayout.VerticalAlignment = Enum.VerticalAlignment.Top
 
-local pages = Instance.new("Frame")
-pages.Size = UDim2.new(1, -20, 1, -85)
-pages.Position = UDim2.new(0, 10, 0, 80)
-pages.BackgroundTransparency = 1
-pages.Parent = mainFrame
+local sidePad = Instance.new("UIPadding", sidebar)
+sidePad.PaddingTop = UDim.new(0, 15)
 
-local OFF_COLOR = Color3.fromRGB(50, 50, 70)
-local ON_COLOR = Color3.fromRGB(60, 170, 90)
-local TAB_ON = Color3.fromRGB(70, 90, 200)
+local contentArea = Instance.new("Frame")
+contentArea.Size = UDim2.new(1, -150, 1, -45)
+contentArea.Position = UDim2.new(0, 145, 0, 40)
+contentArea.BackgroundColor3 = C_BG
+contentArea.BackgroundTransparency = 1
+contentArea.Parent = mainFrame
 
-local tabButtons = {}
-local function createTab(name, page)
-	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(0.25, -3, 1, 0)
-	btn.BackgroundColor3 = OFF_COLOR
-	btn.Text = name
-	btn.TextColor3 = Color3.new(1, 1, 1)
-	btn.Font = Enum.Font.GothamBold
-	btn.TextSize = 12
-	btn.Parent = tabBar
-	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+local isMenuOpen = false
+
+local function open_menu()
+	isMenuOpen = true
+	mainFrame.Visible = true
+	mainScale.Scale = 0.5
+	mainFrame.BackgroundTransparency = 1
+	stroke.Transparency = 1
 	
-	tabButtons[btn] = page
-	btn.MouseButton1Click:Connect(function()
-		for b, p in pairs(tabButtons) do
-			p.Visible = (b == btn)
-			b.BackgroundColor3 = (b == btn) and TAB_ON or OFF_COLOR
-		end
-	end)
-	return btn
+	TweenService:Create(mainScale, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
+	TweenService:Create(mainFrame, TweenInfo.new(0.3), {BackgroundTransparency = 0}):Play()
+	TweenService:Create(stroke, TweenInfo.new(0.3), {Transparency = 0}):Play()
+	
+	send_notification("L Hub Aberto")
 end
 
-local function createPage()
+local function close_menu()
+	isMenuOpen = false
+	local closeTween = TweenService:Create(mainScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In), {Scale = 0.5})
+	TweenService:Create(mainFrame, TweenInfo.new(0.25), {BackgroundTransparency = 1}):Play()
+	TweenService:Create(stroke, TweenInfo.new(0.25), {Transparency = 1}):Play()
+	
+	closeTween.Completed:Connect(function()
+		mainFrame.Visible = false
+	end)
+	closeTween:Play()
+	
+	send_notification("L Hub Fechado")
+end
+
+floatingBtn.MouseButton1Click:Connect(function()
+	if isMenuOpen then close_menu() else open_menu() end
+end)
+
+minBtn.MouseButton1Click:Connect(function() close_menu() end)
+
+closeBtn.MouseButton1Click:Connect(function()
+	getgenv().LHubAlive = false
+	if isFpsBoostActive then disable_fps_boost() end
+	if ThrowMeter then ThrowMeter.TestAutoTap = nil end
+	if antiHideConn then antiHideConn:Disconnect() end
+	gui:Destroy()
+	notifGui:Destroy()
+end)
+
+-- ============================================================
+-- SISTEMA DE PÁGINAS E ABAS
+-- ============================================================
+local pages = {}
+local tabButtons = {}
+
+local function createPage(name)
 	local page = Instance.new("ScrollingFrame")
 	page.Size = UDim2.new(1, 0, 1, 0)
 	page.BackgroundTransparency = 1
 	page.BorderSizePixel = 0
 	page.ScrollBarThickness = 4
+	page.ScrollBarImageColor3 = C_RED
 	page.CanvasSize = UDim2.new(0, 0, 0, 0)
 	page.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	page.Visible = false
-	page.Parent = pages
+	page.Parent = contentArea
 	local layout = Instance.new("UIListLayout", page)
 	layout.Padding = UDim.new(0, 8)
-	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	page.Name = name
+	pages[name] = page
 	return page
 end
 
-local mainPage = createPage()
-local farmPage = createPage()
-local basePage = createPage()
-local shopPage = createPage()
+local function createTab(name, icon)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, -10, 0, 35)
+	btn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+	btn.Text = " " .. icon .. "  " .. name
+	btn.TextColor3 = C_TEXT_DIM
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 13
+	btn.TextXAlignment = Enum.TextXAlignment.Left
+	btn.Parent = sidebar
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+	
+	tabButtons[name] = btn
+	
+	btn.MouseButton1Click:Connect(function()
+		for n, p in pairs(pages) do
+			p.Visible = (n == name)
+		end
+		for n, b in pairs(tabButtons) do
+			b.BackgroundColor3 = (n == name) and C_DARK_RED or Color3.fromRGB(25, 25, 25)
+			b.TextColor3 = (n == name) and C_TEXT or C_TEXT_DIM
+		end
+		if foodPanel then foodPanel.Visible = false end
+	end)
+	return btn
+end
 
-local tabMain = createTab("Main", mainPage)
-local tabFarm = createTab("Farm", farmPage)
-local tabBase = createTab("Base", basePage)
-local tabShop = createTab("Loja", shopPage)
+local homePage = createPage("Home")
+local farmPage = createPage("Farm")
+local shopPage = createPage("Loja")
+local utilPage = createPage("Utilidades")
+local setPage = createPage("Config")
 
-mainPage.Visible = true
-tabMain.BackgroundColor3 = TAB_ON
+local tabHome = createTab("Home", "🏠")
+local tabFarm = createTab("Farm", "⚡")
+local tabShop = createTab("Loja", "🛒")
+local tabUtil = createTab("Utilidades", "🛠️")
+local tabSet = createTab("Config", "⚙️")
 
-local isMinimized = false
-minBtn.MouseButton1Click:Connect(function()
-	isMinimized = not isMinimized
-	pages.Visible = not isMinimized
-	tabBar.Visible = not isMinimized
-	mainFrame.Size = isMinimized and UDim2.new(0, 280, 0, 35) or UDim2.new(0, 280, 0, 320)
-	minBtn.Text = isMinimized and "+" or "-"
-end)
+homePage.Visible = true
+tabHome.BackgroundColor3 = C_DARK_RED
+tabHome.TextColor3 = C_TEXT
 
-closeBtn.MouseButton1Click:Connect(function()
-	isAlive = false 
-	isPerfectActive = false
-	isPopsActive = false
-	isEquipBestActive = false
-	isBuyActive = false
-	isSellActive = false
-	if ThrowMeter then ThrowMeter.TestAutoTap = nil end
-	if antiHideConn then antiHideConn:Disconnect() end
-	gui:Destroy()
-end)
+-- SISTEMA DE BOTÕES PADRÃO
+local OFF_COLOR = Color3.fromRGB(30, 30, 30)
+local ON_COLOR = C_RED
 
--- ============================================================
--- CONTEÚDO DA ABA MAIN (Créditos)
--- ============================================================
+local function createButton(parent, text, order)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, -6, 0, 38)
+	btn.BackgroundColor3 = OFF_COLOR
+	btn.Text = text .. ": OFF"
+	btn.TextColor3 = C_TEXT_DIM
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 14
+	btn.LayoutOrder = order
+	btn.Parent = parent
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+	local bStroke = Instance.new("UIStroke", btn)
+	bStroke.Color = Color3.fromRGB(50, 50, 50)
+	return btn, bStroke
+end
+
+local function toggleButton(btn, bStroke, state, baseText)
+	btn.Text = baseText .. ": " .. (state and "ON" or "OFF")
+	btn.BackgroundColor3 = state and ON_COLOR or OFF_COLOR
+	btn.TextColor3 = state and C_TEXT or C_TEXT_DIM
+	bStroke.Color = state and Color3.fromRGB(255, 100, 100) or Color3.fromRGB(50, 50, 50)
+	send_notification(baseText .. " " .. (state and "Ligado" or "Desligado"))
+end
+
+-- PÁGINA: HOME
 local infoLabel = Instance.new("TextLabel")
-infoLabel.Size = UDim2.new(1, -6, 0, 30)
-infoLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-infoLabel.Text = "Bem-vindo ao meu script"
-infoLabel.TextColor3 = Color3.fromRGB(0, 150, 255) -- Azul
-infoLabel.Font = Enum.Font.GothamMedium
+infoLabel.Size = UDim2.new(1, -6, 0, 40)
+infoLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+infoLabel.Text = "Bem-vindo ao L Hub Premium!\nUse o menu lateral para navegar."
+infoLabel.TextColor3 = C_RED
+infoLabel.Font = Enum.Font.GothamBold
 infoLabel.TextSize = 14
 infoLabel.TextWrapped = true
 infoLabel.LayoutOrder = 1
-infoLabel.Parent = mainPage
+infoLabel.Parent = homePage
 Instance.new("UICorner", infoLabel).CornerRadius = UDim.new(0, 6)
 
 local creditsFrame = Instance.new("Frame")
-creditsFrame.Size = UDim2.new(1, -6, 0, 70)
-creditsFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+creditsFrame.Size = UDim2.new(1, -6, 0, 80)
+creditsFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 creditsFrame.LayoutOrder = 2
-creditsFrame.Parent = mainPage
+creditsFrame.Parent = homePage
 Instance.new("UICorner", creditsFrame).CornerRadius = UDim.new(0, 6)
-local creditStroke = Instance.new("UIStroke")
-creditStroke.Color = Color3.fromRGB(60, 60, 80)
-creditStroke.Parent = creditsFrame
+Instance.new("UIStroke", creditsFrame).Color = C_DARK_RED
 
 local avatarImg = Instance.new("ImageLabel")
-avatarImg.Size = UDim2.new(0, 50, 0, 50)
+avatarImg.Size = UDim2.new(0, 60, 0, 60)
 avatarImg.Position = UDim2.new(0, 10, 0.5, 0)
 avatarImg.AnchorPoint = Vector2.new(0, 0.5)
-avatarImg.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+avatarImg.BackgroundColor3 = C_BG
 avatarImg.Parent = creditsFrame
-Instance.new("UICorner", avatarImg).CornerRadius = UDim.new(0, 25)
-local avatarStroke = Instance.new("UIStroke")
-avatarStroke.Color = Color3.fromRGB(70, 90, 200)
-avatarStroke.Thickness = 2
-avatarStroke.Parent = avatarImg
+Instance.new("UICorner", avatarImg).CornerRadius = UDim.new(0, 30)
+local avStroke = Instance.new("UIStroke", avatarImg)
+avStroke.Color = C_RED
+avStroke.Thickness = 2
 
 task.spawn(function()
 	local success, userId = pcall(function() return Players:GetUserIdFromNameAsync("ROBZINHO666") end)
@@ -395,29 +671,27 @@ task.spawn(function()
 		local thumbSuccess, thumbUrl = pcall(function() 
 			return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150) 
 		end)
-		if thumbSuccess and thumbUrl then
-			avatarImg.Image = thumbUrl
-		end
+		if thumbSuccess and thumbUrl then avatarImg.Image = thumbUrl end
 	end
 end)
 
 local creatorText = Instance.new("TextLabel")
-creatorText.Size = UDim2.new(1, -70, 0, 20)
-creatorText.Position = UDim2.new(0, 70, 0, 12)
+creatorText.Size = UDim2.new(1, -80, 0, 20)
+creatorText.Position = UDim2.new(0, 80, 0, 20)
 creatorText.BackgroundTransparency = 1
 creatorText.Text = "Creator"
-creatorText.TextColor3 = Color3.fromRGB(255, 255, 255)
+creatorText.TextColor3 = C_RED
 creatorText.Font = Enum.Font.GothamBold
 creatorText.TextSize = 14
 creatorText.TextXAlignment = Enum.TextXAlignment.Left
 creatorText.Parent = creditsFrame
 
 local nameText = Instance.new("TextLabel")
-nameText.Size = UDim2.new(1, -70, 0, 20)
-nameText.Position = UDim2.new(0, 70, 0, 32)
+nameText.Size = UDim2.new(1, -80, 0, 20)
+nameText.Position = UDim2.new(0, 80, 0, 40)
 nameText.BackgroundTransparency = 1
 nameText.Text = "GOD_ROB"
-nameText.TextColor3 = Color3.fromRGB(200, 200, 220)
+nameText.TextColor3 = C_TEXT
 nameText.Font = Enum.Font.GothamMedium
 nameText.TextSize = 13
 nameText.TextXAlignment = Enum.TextXAlignment.Left
@@ -425,178 +699,320 @@ nameText.Parent = creditsFrame
 
 task.spawn(function()
 	local tick = 0
-	while isAlive and creatorText.Parent do
+	while getgenv().LHubAlive and creatorText.Parent do
 		task.wait(0.05)
-		tick = tick + 0.02
-		creatorText.TextColor3 = Color3.fromHSV(tick % 1, 1, 1)
+		tick = tick + 0.01
+		creatorText.TextColor3 = Color3.fromHSV(tick % 1, 0.8, 1)
 	end
 end)
 
--- ============================================================
--- CONTEÚDO DA ABA FARM
--- ============================================================
-local autoPerfectBtn = Instance.new("TextButton")
-autoPerfectBtn.Size = UDim2.new(1, -6, 0, 45)
-autoPerfectBtn.BackgroundColor3 = OFF_COLOR
-autoPerfectBtn.Text = "Auto Perfect: OFF"
-autoPerfectBtn.TextColor3 = Color3.new(1, 1, 1)
-autoPerfectBtn.Font = Enum.Font.GothamBold
-autoPerfectBtn.TextSize = 15
-autoPerfectBtn.LayoutOrder = 1
-autoPerfectBtn.Parent = farmPage
-Instance.new("UICorner", autoPerfectBtn).CornerRadius = UDim.new(0, 8)
-
+-- PÁGINA: FARM
+local autoPerfectBtn, perfectStroke = createButton(farmPage, "Auto Perfect", 1)
 autoPerfectBtn.MouseButton1Click:Connect(function()
 	isPerfectActive = not isPerfectActive
-	autoPerfectBtn.Text = "Auto Perfect: " .. (isPerfectActive and "ON" or "OFF")
-	autoPerfectBtn.BackgroundColor3 = isPerfectActive and ON_COLOR or OFF_COLOR
+	toggleButton(autoPerfectBtn, perfectStroke, isPerfectActive, "Auto Perfect")
 end)
 
-local autoPopsBtn = Instance.new("TextButton")
-autoPopsBtn.Size = UDim2.new(1, -6, 0, 45)
-autoPopsBtn.BackgroundColor3 = OFF_COLOR
-autoPopsBtn.Text = "Auto Pops (Roxo): OFF"
-autoPopsBtn.TextColor3 = Color3.new(1, 1, 1)
-autoPopsBtn.Font = Enum.Font.GothamBold
-autoPopsBtn.TextSize = 15
-autoPopsBtn.LayoutOrder = 2
-autoPopsBtn.Parent = farmPage
-Instance.new("UICorner", autoPopsBtn).CornerRadius = UDim.new(0, 8)
-
+local autoPopsBtn, popsStroke = createButton(farmPage, "Auto Pops (Roxo)", 2)
 autoPopsBtn.MouseButton1Click:Connect(function()
 	isPopsActive = not isPopsActive
-	autoPopsBtn.Text = "Auto Pops (Roxo): " .. (isPopsActive and "ON" or "OFF")
-	autoPopsBtn.BackgroundColor3 = isPopsActive and ON_COLOR or OFF_COLOR
+	toggleButton(autoPopsBtn, popsStroke, isPopsActive, "Auto Pops (Roxo)")
 end)
 
--- ============================================================
--- CONTEÚDO DA ABA BASE
--- ============================================================
-local equipBestBtn = Instance.new("TextButton")
-equipBestBtn.Size = UDim2.new(1, -6, 0, 45)
-equipBestBtn.BackgroundColor3 = OFF_COLOR
-equipBestBtn.Text = "EquipBest: OFF"
-equipBestBtn.TextColor3 = Color3.new(1, 1, 1)
-equipBestBtn.Font = Enum.Font.GothamBold
-equipBestBtn.TextSize = 15
-equipBestBtn.LayoutOrder = 1
-equipBestBtn.Parent = basePage
-Instance.new("UICorner", equipBestBtn).CornerRadius = UDim.new(0, 8)
-
+local equipBestBtn, equipStroke = createButton(farmPage, "EquipBest", 3)
 equipBestBtn.MouseButton1Click:Connect(function()
 	isEquipBestActive = not isEquipBestActive
-	equipBestBtn.Text = "EquipBest: " .. (isEquipBestActive and "ON" or "OFF")
-	equipBestBtn.BackgroundColor3 = isEquipBestActive and ON_COLOR or OFF_COLOR
+	toggleButton(equipBestBtn, equipStroke, isEquipBestActive, "EquipBest")
 end)
 
 -- ============================================================
--- CONTEÚDO DA ABA LOJA
+-- PÁGINA: LOJA (COM BUSCA E LISTA CORRIGIDA)
 -- ============================================================
-local autoBuyBtn = Instance.new("TextButton")
-autoBuyBtn.Size = UDim2.new(1, -6, 0, 45)
-autoBuyBtn.BackgroundColor3 = OFF_COLOR
-autoBuyBtn.Text = "Auto Comprar Inteligente: OFF"
-autoBuyBtn.TextColor3 = Color3.new(1, 1, 1)
-autoBuyBtn.Font = Enum.Font.GothamBold
-autoBuyBtn.TextSize = 15
-autoBuyBtn.LayoutOrder = 1
-autoBuyBtn.Parent = shopPage
-Instance.new("UICorner", autoBuyBtn).CornerRadius = UDim.new(0, 8)
+local function createCard(parent, titleText, layoutOrder)
+	local card = Instance.new("Frame")
+	card.Size = UDim2.new(1, -6, 0, 0)
+	card.AutomaticSize = Enum.AutomaticSize.Y
+	card.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+	card.LayoutOrder = layoutOrder
+	card.Parent = parent
+	Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+	local cStroke = Instance.new("UIStroke", card)
+	cStroke.Color = C_DARK_RED
+	local cPad = Instance.new("UIPadding", card)
+	cPad.PaddingTop = UDim.new(0, 8)
+	cPad.PaddingBottom = UDim.new(0, 8)
+	cPad.PaddingLeft = UDim.new(0, 8)
+	cPad.PaddingRight = UDim.new(0, 8)
+	local cLayout = Instance.new("UIListLayout", card)
+	cLayout.Padding = UDim.new(0, 6)
+	cLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	local cTitle = Instance.new("TextLabel")
+	cTitle.Size = UDim2.new(1, 0, 0, 20)
+	cTitle.BackgroundTransparency = 1
+	cTitle.Text = titleText
+	cTitle.TextColor3 = C_RED
+	cTitle.Font = Enum.Font.GothamBold
+	cTitle.TextSize = 13
+	cTitle.TextXAlignment = Enum.TextXAlignment.Left
+	cTitle.LayoutOrder = 0
+	cTitle.Parent = card
+	return card
+end
 
+local buyCard = createCard(shopPage, "🛒 COMPRAR COMIDAS", 1)
+
+local buyHeader = Instance.new("Frame")
+buyHeader.Size = UDim2.new(1, 0, 0, 38)
+buyHeader.BackgroundTransparency = 1
+buyHeader.LayoutOrder = 1
+buyHeader.Parent = buyCard
+local buyHeaderLayout = Instance.new("UIListLayout", buyHeader)
+buyHeaderLayout.FillDirection = Enum.FillDirection.Horizontal
+buyHeaderLayout.Padding = UDim.new(0, 4)
+
+local autoBuyBtn, buyStroke = createButton(buyHeader, "Mestre Auto Comprar", 1)
+autoBuyBtn.Size = UDim2.new(0.8, -4, 0, 38)
 autoBuyBtn.MouseButton1Click:Connect(function()
 	isBuyActive = not isBuyActive
-	autoBuyBtn.Text = "Auto Comprar Inteligente: " .. (isBuyActive and "ON" or "OFF")
-	autoBuyBtn.BackgroundColor3 = isBuyActive and ON_COLOR or OFF_COLOR
+	toggleButton(autoBuyBtn, buyStroke, isBuyActive, "Mestre Auto Comprar")
 end)
 
-local autoSellBtn = Instance.new("TextButton")
-autoSellBtn.Size = UDim2.new(1, -6, 0, 45)
-autoSellBtn.BackgroundColor3 = OFF_COLOR
-autoSellBtn.Text = "Auto Vender (Por Renda): OFF"
-autoSellBtn.TextColor3 = Color3.new(1, 1, 1)
-autoSellBtn.Font = Enum.Font.GothamBold
-autoSellBtn.TextSize = 15
-autoSellBtn.LayoutOrder = 2
-autoSellBtn.Parent = shopPage
-Instance.new("UICorner", autoSellBtn).CornerRadius = UDim.new(0, 8)
+local plusBtn = Instance.new("TextButton")
+plusBtn.Size = UDim2.new(0.2, 0, 0, 38)
+plusBtn.BackgroundColor3 = C_DARK_RED
+plusBtn.Text = "+"
+plusBtn.TextColor3 = C_TEXT
+plusBtn.Font = Enum.Font.GothamBlack
+plusBtn.TextSize = 20
+plusBtn.Parent = buyHeader
+Instance.new("UICorner", plusBtn).CornerRadius = UDim.new(0, 6)
+local plusStroke = Instance.new("UIStroke", plusBtn)
+plusStroke.Color = C_RED
 
+debug_label = Instance.new("TextLabel")
+debug_label.Size = UDim2.new(1, 0, 0, 20)
+debug_label.BackgroundTransparency = 1
+debug_label.Text = "Aguardando..."
+debug_label.TextColor3 = C_TEXT_DIM
+debug_label.Font = Enum.Font.Code
+debug_label.TextSize = 11
+debug_label.LayoutOrder = 2
+debug_label.Parent = buyCard
+
+-- MINI DROPDOWN DE COMIDAS
+local foodPanel = Instance.new("Frame")
+foodPanel.Size = UDim2.new(0, 220, 0, 220)
+foodPanel.Position = UDim2.new(0.85, -4, 0, 42)
+foodPanel.BackgroundColor3 = C_BG
+foodPanel.BorderSizePixel = 0
+foodPanel.ZIndex = 50
+foodPanel.Visible = false
+foodPanel.Parent = buyHeader
+Instance.new("UICorner", foodPanel).CornerRadius = UDim.new(0, 8)
+local fpStroke = Instance.new("UIStroke", foodPanel)
+fpStroke.Color = C_RED
+
+-- Caixa de Pesquisa
+local searchBox = Instance.new("TextBox")
+searchBox.Size = UDim2.new(1, -10, 0, 30)
+searchBox.Position = UDim2.new(0, 5, 0, 5)
+searchBox.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+searchBox.TextColor3 = C_TEXT
+searchBox.Font = Enum.Font.GothamMedium
+searchBox.TextSize = 13
+searchBox.Text = "" 
+searchBox.PlaceholderText = "Pesquisar..."
+searchBox.PlaceholderColor3 = Color3.fromRGB(100,100,100)
+searchBox.ZIndex = 51
+searchBox.Parent = foodPanel
+Instance.new("UICorner", searchBox).CornerRadius = UDim.new(0, 6)
+
+local foodScroll = Instance.new("ScrollingFrame")
+foodScroll.Size = UDim2.new(1, -10, 1, -45)
+foodScroll.Position = UDim2.new(0, 5, 0, 40)
+foodScroll.BackgroundTransparency = 1
+foodScroll.BorderSizePixel = 0
+foodScroll.ScrollBarThickness = 4
+foodScroll.ScrollBarImageColor3 = C_RED
+foodScroll.ZIndex = 51
+foodScroll.Parent = foodPanel
+local fsLayout = Instance.new("UIListLayout", foodScroll)
+fsLayout.Padding = UDim.new(0, 4)
+
+local function refresh_food_panel()
+	foodScroll:ClearAllChildren()
+	local txt = string.lower(searchBox.Text)
+	
+	for _, food in ipairs(foods_list) do
+		if txt == "" or string.find(string.lower(food.name), txt, 1, true) then
+			local btn = Instance.new("TextButton")
+			btn.Size = UDim2.new(1, -4, 0, 28)
+			btn.Position = UDim2.new(0, 2, 0, 0)
+			btn.BackgroundColor3 = food_toggles[food.id] and ON_COLOR or OFF_COLOR
+			btn.Text = food.name .. (food_toggles[food.id] and " [ON]" or " [OFF]")
+			btn.TextColor3 = food_toggles[food.id] and C_TEXT or C_TEXT_DIM
+			btn.Font = Enum.Font.GothamMedium
+			btn.TextSize = 12
+			btn.ZIndex = 52
+			btn.Parent = foodScroll
+			Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+			
+			btn.MouseButton1Click:Connect(function()
+				food_toggles[food.id] = not food_toggles[food.id]
+				btn.Text = food.name .. (food_toggles[food.id] and " [ON]" or " [OFF]")
+				btn.BackgroundColor3 = food_toggles[food.id] and ON_COLOR or OFF_COLOR
+				btn.TextColor3 = food_toggles[food.id] and C_TEXT or C_TEXT_DIM
+				send_notification(food.name .. (food_toggles[food.id] and " ON" or " OFF"))
+			end)
+		end
+	end
+end
+
+searchBox:GetPropertyChangedSignal("Text"):Connect(refresh_food_panel)
+
+plusBtn.MouseButton1Click:Connect(function()
+	foodPanel.Visible = not foodPanel.Visible
+	if foodPanel.Visible then
+		refresh_food_panel()
+	end
+end)
+
+-- Lógica de Fechar ao Clicar Fora
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if not foodPanel.Visible then return end
+	
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		local pos = input.Position
+		local objects = player.PlayerGui:GetGuiObjectsAtPosition(pos.X, pos.Y)
+		
+		local clickedInsidePanel = false
+		for _, obj in ipairs(objects) do
+			if obj == foodPanel or obj:IsDescendantOf(foodPanel) then
+				clickedInsidePanel = true
+				break
+			end
+		end
+
+		local clickedPlus = false
+		for _, obj in ipairs(objects) do
+			if obj == plusBtn or obj:IsDescendantOf(plusBtn) then
+				clickedPlus = true
+				break
+			end
+		end
+
+		if not clickedInsidePanel and not clickedPlus then
+			foodPanel.Visible = false
+		end
+	end
+end)
+
+-- CARD 2: VENDER
+local divider = Instance.new("Frame")
+divider.Size = UDim2.new(1, -6, 0, 2)
+divider.BackgroundColor3 = C_DARK_RED
+divider.BorderSizePixel = 0
+divider.LayoutOrder = 2
+divider.Parent = shopPage
+
+local sellCard = createCard(shopPage, "💰 VENDER ANIMAIS", 3)
+local autoSellBtn, sellStroke = createButton(sellCard, "Auto Vender", 1)
 autoSellBtn.MouseButton1Click:Connect(function()
 	isSellActive = not isSellActive
-	autoSellBtn.Text = "Auto Vender (Por Renda): " .. (isSellActive and "ON" or "OFF")
-	autoSellBtn.BackgroundColor3 = isSellActive and ON_COLOR or OFF_COLOR
+	toggleButton(autoSellBtn, sellStroke, isSellActive, "Auto Vender")
 end)
 
 local minPriceLabel = Instance.new("TextLabel")
-minPriceLabel.Size = UDim2.new(1, -6, 0, 20)
+minPriceLabel.Size = UDim2.new(1, 0, 0, 15)
 minPriceLabel.BackgroundTransparency = 1
-minPriceLabel.Text = "Digite a renda MÍNIMA por segundo:"
-minPriceLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
+minPriceLabel.Text = "Renda MÍNIMA por segundo:"
+minPriceLabel.TextColor3 = C_TEXT_DIM
 minPriceLabel.Font = Enum.Font.GothamBold
-minPriceLabel.TextSize = 12
+minPriceLabel.TextSize = 11
 minPriceLabel.TextXAlignment = Enum.TextXAlignment.Left
-minPriceLabel.LayoutOrder = 3
-minPriceLabel.Parent = shopPage
+minPriceLabel.LayoutOrder = 2
+minPriceLabel.Parent = sellCard
 
 local minPriceBox = Instance.new("TextBox")
-minPriceBox.Size = UDim2.new(1, -6, 0, 40)
-minPriceBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-minPriceBox.TextColor3 = Color3.new(1, 1, 1)
+minPriceBox.Size = UDim2.new(1, 0, 0, 30)
+minPriceBox.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+minPriceBox.TextColor3 = C_TEXT
 minPriceBox.Font = Enum.Font.GothamBold
-minPriceBox.TextSize = 16
+minPriceBox.TextSize = 13
 minPriceBox.Text = ""
-minPriceBox.PlaceholderText = "Ex: 150M, 1B, 10T..."
-minPriceBox.LayoutOrder = 4
-minPriceBox.Parent = shopPage
-Instance.new("UICorner", minPriceBox).CornerRadius = UDim.new(0, 8)
-local boxStroke = Instance.new("UIStroke")
-boxStroke.Color = Color3.fromRGB(60, 60, 80)
-boxStroke.Parent = minPriceBox
+minPriceBox.PlaceholderText = "Ex: 150M..."
+minPriceBox.PlaceholderColor3 = Color3.fromRGB(100, 100, 100)
+minPriceBox.LayoutOrder = 3
+minPriceBox.Parent = sellCard
+Instance.new("UICorner", minPriceBox).CornerRadius = UDim.new(0, 6)
+local boxStroke = Instance.new("UIStroke", minPriceBox)
+boxStroke.Color = C_DARK_RED
 
 local parsedPriceLabel = Instance.new("TextLabel")
-parsedPriceLabel.Size = UDim2.new(1, -6, 0, 20)
+parsedPriceLabel.Size = UDim2.new(1, 0, 0, 15)
 parsedPriceLabel.BackgroundTransparency = 1
 parsedPriceLabel.Text = "Renda Mín: 0/s"
 parsedPriceLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
 parsedPriceLabel.Font = Enum.Font.GothamMedium
-parsedPriceLabel.TextSize = 12
+parsedPriceLabel.TextSize = 11
 parsedPriceLabel.TextXAlignment = Enum.TextXAlignment.Left
-parsedPriceLabel.LayoutOrder = 5
-parsedPriceLabel.Parent = shopPage
+parsedPriceLabel.LayoutOrder = 4
+parsedPriceLabel.Parent = sellCard
 
 log_label = Instance.new("TextLabel")
-log_label.Size = UDim2.new(1, -6, 0, 35)
-log_label.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-log_label.Text = "Aguardando Auto Vender..."
-log_label.TextColor3 = Color3.fromRGB(200, 200, 200)
+log_label.Size = UDim2.new(1, 0, 0, 25)
+log_label.BackgroundTransparency = 1
+log_label.Text = "Aguardando..."
+log_label.TextColor3 = C_TEXT_DIM
 log_label.Font = Enum.Font.Code
-log_label.TextSize = 11
+log_label.TextSize = 10
 log_label.TextWrapped = true
-log_label.LayoutOrder = 6
-log_label.Parent = shopPage
-Instance.new("UICorner", log_label).CornerRadius = UDim.new(0, 6)
+log_label.LayoutOrder = 5
+log_label.Parent = sellCard
 
 minPriceBox:GetPropertyChangedSignal("Text"):Connect(function()
 	local parsed = parse_abbreviated_number(minPriceBox.Text)
 	if parsed > 0 then
 		current_min_sell = parsed
-		minPriceBox.TextColor3 = Color3.new(1, 1, 1)
-		local formatted = tostring(parsed)
-		while true do
-			formatted, k = formatted:gsub("^(-?%d+)(%d%d%d)", '%1,%2')
-			if k == 0 then break end
-		end
-		parsedPriceLabel.Text = "Renda Mín: " .. formatted .. "/s"
+		minPriceBox.TextColor3 = C_TEXT
+		parsedPriceLabel.Text = "Renda Mín: " .. tostring(parsed) .. "/s"
 		parsedPriceLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
 	else
 		current_min_sell = 0
-		minPriceBox.TextColor3 = Color3.fromRGB(255, 100, 100)
+		minPriceBox.TextColor3 = C_RED
 		parsedPriceLabel.Text = "Renda Mín: Aguardando..."
-		parsedPriceLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+		parsedPriceLabel.TextColor3 = C_RED
 	end
 end)
 
+-- PÁGINA: UTILIDADES
+local antiAfkBtn, antiAfkStroke = createButton(utilPage, "Anti-AFK", 1)
+antiAfkBtn.MouseButton1Click:Connect(function()
+	isAntiAfkActive = not isAntiAfkActive
+	toggleButton(antiAfkBtn, antiAfkStroke, isAntiAfkActive, "Anti-AFK")
+end)
+
+local fpsBoostBtn, fpsBoostStroke = createButton(utilPage, "FPS Boost (Tira Texturas)", 2)
+fpsBoostBtn.MouseButton1Click:Connect(function()
+	isFpsBoostActive = not isFpsBoostActive
+	toggleButton(fpsBoostBtn, fpsBoostStroke, isFpsBoostActive, "FPS Boost")
+	if isFpsBoostActive then enable_fps_boost() else disable_fps_boost() end
+end)
+
+-- PÁGINA: CONFIG
+local infoLabel2 = Instance.new("TextLabel")
+infoLabel2.Size = UDim2.new(1, -6, 0, 40)
+infoLabel2.BackgroundTransparency = 1
+infoLabel2.Text = "Para fechar o script, clique no 'X' no topo.\nPara esconder, clique no botão 'L' flutuante."
+infoLabel2.TextColor3 = C_TEXT_DIM
+infoLabel2.Font = Enum.Font.Gotham
+infoLabel2.TextSize = 12
+infoLabel2.TextWrapped = true
+infoLabel2.Parent = setPage
+
 -- ============================================================
--- INTRO HOLOGRÁFICA
+-- INTRO DE ENTRADA
 -- ============================================================
 task.spawn(function()
 	local introGui = Instance.new("ScreenGui")
@@ -610,7 +1026,7 @@ task.spawn(function()
 	bgDim.BackgroundColor3 = Color3.new(0, 0, 0)
 	bgDim.BackgroundTransparency = 1
 	bgDim.Parent = introGui
-	TweenService:Create(bgDim, TweenInfo.new(0.5), {BackgroundTransparency = 0.5}):Play()
+	TweenService:Create(bgDim, TweenInfo.new(0.5), {BackgroundTransparency = 0.6}):Play()
 
 	local holoText = Instance.new("TextLabel")
 	holoText.Size = UDim2.new(0, 900, 0, 200)
@@ -619,19 +1035,18 @@ task.spawn(function()
 	holoText.Text = "L HUB"
 	holoText.Font = Enum.Font.GothamBlack
 	holoText.TextSize = 180
-	holoText.TextColor3 = Color3.fromRGB(0, 255, 255)
+	holoText.TextColor3 = C_RED
 	holoText.TextTransparency = 1
 	holoText.Parent = introGui
 	
 	local uig = Instance.new("UIGradient")
-	uig.Color = ColorSequence.new(Color3.fromRGB(0, 255, 255), Color3.fromRGB(0, 150, 255))
+	uig.Color = ColorSequence.new(C_RED, C_DARK_RED)
 	uig.Parent = holoText
 	
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = Color3.fromRGB(0, 255, 255)
+	local stroke = Instance.new("UIStroke", holoText)
+	stroke.Color = C_RED
 	stroke.Thickness = 4
 	stroke.Transparency = 1
-	stroke.Parent = holoText
 
 	local tweenIn = TweenService:Create(holoText, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 		TextTransparency = 0,
@@ -667,6 +1082,8 @@ task.spawn(function()
 	
 	task.wait(1)
 	introGui:Destroy()
+	
+	open_menu()
 end)
 
-print("✅ L Hub Completo carregado com sucesso.")
+print("✅ L Hub Premium (Com Kill Switch) carregado.")
