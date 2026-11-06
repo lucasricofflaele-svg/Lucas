@@ -1,4 +1,4 @@
--- L Hub Premium (LocalScript) - Black & Red Edition (Drag Fix)
+-- L Hub Premium (LocalScript) - Structural Game Lock
 -- Cole no Delta.
 
 local Players = game:GetService("Players")
@@ -8,6 +8,69 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+
+-- ============================================================
+-- VERIFICAÇÃO DE JOGO (GAME LOCK POR ESTRUTURA)
+-- ============================================================
+print("L Hub carregado no Game ID: " .. tostring(game.PlaceId))
+
+local isCorrectGame = false
+pcall(function()
+    -- Se o jogo tiver essas 3 pastas exatas, é o jogo certo.
+    if ReplicatedStorage:FindFirstChild("Remotes") and 
+       ReplicatedStorage:FindFirstChild("Config") and 
+       ReplicatedStorage:FindFirstChild("Shared") and
+       ReplicatedStorage:FindFirstChild("AnimalsData") then
+        isCorrectGame = true
+    end
+end)
+
+if not isCorrectGame then
+    -- Notificação Gigante de Erro
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "UnsupportedGame"
+    gui.DisplayOrder = 2147483647
+    pcall(function() gui.Parent = gethui() end)
+    if not gui.Parent then gui.Parent = player:WaitForChild("PlayerGui") end
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 600, 0, 150)
+    frame.Position = UDim2.new(0.5, -300, 0.5, -75)
+    frame.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+    frame.BorderSizePixel = 0
+    frame.Parent = gui
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 20)
+    
+    local stroke = Instance.new("UIStroke", frame)
+    stroke.Color = Color3.fromRGB(255, 50, 50)
+    stroke.Thickness = 6
+    stroke.Parent = frame
+    
+    local text = Instance.new("TextLabel")
+    text.Size = UDim2.new(1, 0, 1, 0)
+    text.BackgroundTransparency = 1
+    text.Text = "NO SUPPORT FOR THIS GAME"
+    text.TextColor3 = Color3.fromRGB(255, 255, 255)
+    text.Font = Enum.Font.GothamBlack
+    text.TextSize = 40
+    text.Parent = frame
+    
+    local scale = Instance.new("UIScale", frame)
+    scale.Scale = 0
+    
+    -- Animação de aparecer
+    TweenService:Create(scale, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
+    
+    -- Animação de sumir e destruir
+    task.delay(3, function()
+        TweenService:Create(scale, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0}):Play()
+        task.delay(0.5, function()
+            gui:Destroy()
+        end)
+    end)
+    
+    return -- Mata o script aqui, não executa mais nada
+end
 
 -- ============================================================
 -- KILL SWITCH DEFINITIVO
@@ -680,4 +743,4 @@ task.spawn(function()
 	task.wait(1); introGui:Destroy(); open_menu()
 end)
 
-print("✅ L Hub Premium (Drag Corrigido) carregado.")
+print("✅ L Hub Premium (Game Locked) carregado.")
