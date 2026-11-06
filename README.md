@@ -1,16 +1,17 @@
--- L Hub (LocalScript) - Completo com Kill Switch
+-- L Hub (LocalScript) - Completo com Kill Switch, Base, Loja, Créditos e Intro
 -- Cole no Delta.
 
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local VirtualUser = game:GetService("VirtualUser")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 -- ============================================================
--- CONFIGURAÇÕES E ESTADOS
+-- ESTADO GLOBAL E CONFIGURAÇÕES
 -- ============================================================
-local isAlive = true -- CONTROLE DE VIDA DO SCRIPT
+local isAlive = true
 local isPerfectActive = false
 local isPopsActive = false
 local isEquipBestActive = false
@@ -19,7 +20,9 @@ local isSellActive = false
 local current_min_sell = 0
 local PERFECT_TIME = 1.10
 
--- Formata número para texto (ex: 1.5B)
+-- ============================================================
+-- FORMATAÇÃO E PARSE
+-- ============================================================
 local function format_number(n)
 	if n >= 1e12 then return string.format("%.1fT", n / 1e12) end
 	if n >= 1e9 then return string.format("%.1fB", n / 1e9) end
@@ -28,7 +31,6 @@ local function format_number(n)
 	return tostring(n)
 end
 
--- Converte texto (ex: 1b, 500m) em número
 local function parse_abbreviated_number(str)
 	str = string.lower(str)
 	str = string.gsub(str, "%s+", "")
@@ -46,17 +48,31 @@ local function parse_abbreviated_number(str)
 end
 
 -- ============================================================
--- LÓGICA FARM
+-- MÓDULOS
 -- ============================================================
 local ThrowMeter
 pcall(function()
 	ThrowMeter = require(player.PlayerScripts.Client.Controllers.ThrowMeter)
 end)
 
--- Auto Perfect
+local Remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
+local PlotEquipBest = Remotes and Remotes:FindFirstChild("Plot_EquipBest")
+local PlotSellAnimal = Remotes and Remotes:FindFirstChild("Plot_SellAnimal")
+local ShopBuy = Remotes and Remotes:FindFirstChild("Shop_Buy")
+
+local DataController, Mutations, FoodsConfig
+pcall(function()
+	DataController = require(player.PlayerScripts.Client.Controllers.DataController)
+	Mutations = require(ReplicatedStorage.Shared.Mutations)
+	FoodsConfig = require(ReplicatedStorage.Config.FoodsConfig)
+end)
+
+-- ============================================================
+-- LOOPS DE FUNÇÃO
+-- ============================================================
 task.spawn(function()
 	while isAlive do
-		task.wait(0.2) 
+		task.wait(0.5) 
 		if isPerfectActive and ThrowMeter then
 			ThrowMeter.TestAutoTap = PERFECT_TIME
 		elseif not isPerfectActive and ThrowMeter then
@@ -65,10 +81,9 @@ task.spawn(function()
 	end
 end)
 
--- Auto Pops (Animação Roxa)
 task.spawn(function()
 	while isAlive do
-		task.wait(0.2) 
+		task.wait(0.5) 
 		if isPopsActive then
 			local trainingGui = player.PlayerGui:FindFirstChild("TrainingSequence")
 			if trainingGui then
@@ -92,7 +107,7 @@ task.spawn(function()
 							VirtualUser:Button1Down(Vector2.new(0.5, 0.5))
 							VirtualUser:Button1Up(Vector2.new(0.5, 0.5))
 						end)
-						task.wait(0.2)
+						task.wait(0.5) 
 					end
 				end
 			end
@@ -100,40 +115,16 @@ task.spawn(function()
 	end
 end)
 
--- ============================================================
--- LÓGICA BASE (EquipBest)
--- ============================================================
 task.spawn(function()
 	while isAlive do
 		task.wait(2.0) 
-		if isEquipBestActive then
-			local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-			if remotes then
-				local equipRemote = remotes:FindFirstChild("Plot_EquipBest")
-				if equipRemote then
-					pcall(function() equipRemote:InvokeServer() end)
-				end
-			end
+		if isEquipBestActive and PlotEquipBest then
+			pcall(function() PlotEquipBest:InvokeServer() end)
 		end
 	end
 end)
 
--- ============================================================
--- LÓGICA LOJA E PREÇO
--- ============================================================
-local Remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
-local PlotSellAnimal = Remotes and Remotes:FindFirstChild("Plot_SellAnimal")
-local ShopBuy = Remotes and Remotes:FindFirstChild("Shop_Buy")
-
-local DataController, Mutations, FoodsConfig
-pcall(function()
-	DataController = require(player.PlayerScripts.Client.Controllers.DataController)
-	Mutations = require(ReplicatedStorage.Shared.Mutations)
-	FoodsConfig = require(ReplicatedStorage.Config.FoodsConfig)
-end)
-
 local log_label
-
 local function add_log(text, is_error)
 	if log_label then
 		log_label.Text = text
@@ -145,7 +136,7 @@ task.spawn(function()
 	while isAlive do
 		task.wait(0.8)
 		
-		-- AUTO VENDER (Por Renda/s)
+		-- AUTO VENDER
 		if isSellActive and current_min_sell > 0 and DataController and Mutations and PlotSellAnimal then
 			local animals = DataController:Get("Animals")
 			local bestIncome = player:GetAttribute("BestIncome") or 0
@@ -171,7 +162,7 @@ task.spawn(function()
 			end
 		end
 		
-		-- AUTO COMPRAR (Inteligente)
+		-- AUTO COMPRAR
 		if isBuyActive and ShopBuy and DataController and FoodsConfig then
 			local money = DataController:Get("Money") or 0
 			local owned_foods = DataController:Get("OwnedFoods") or {}
@@ -229,7 +220,6 @@ stroke.Color = Color3.fromRGB(60, 60, 80)
 stroke.Thickness = 1.5
 stroke.Parent = mainFrame
 
--- BARRA DE TÍTULO
 local titleBar = Instance.new("Frame")
 titleBar.Size = UDim2.new(1, 0, 0, 35)
 titleBar.BackgroundColor3 = Color3.fromRGB(28, 28, 35)
@@ -293,7 +283,7 @@ local TAB_ON = Color3.fromRGB(70, 90, 200)
 local tabButtons = {}
 local function createTab(name, page)
 	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(0.25, -3, 1, 0) -- Ajustado para 4 abas
+	btn.Size = UDim2.new(0.25, -3, 1, 0)
 	btn.BackgroundColor3 = OFF_COLOR
 	btn.Text = name
 	btn.TextColor3 = Color3.new(1, 1, 1)
@@ -330,13 +320,13 @@ end
 
 local mainPage = createPage()
 local farmPage = createPage()
-local shopPage = createPage()
 local basePage = createPage()
+local shopPage = createPage()
 
 local tabMain = createTab("Main", mainPage)
 local tabFarm = createTab("Farm", farmPage)
-local tabShop = createTab("Loja", shopPage)
 local tabBase = createTab("Base", basePage)
+local tabShop = createTab("Loja", shopPage)
 
 mainPage.Visible = true
 tabMain.BackgroundColor3 = TAB_ON
@@ -350,7 +340,6 @@ minBtn.MouseButton1Click:Connect(function()
 	minBtn.Text = isMinimized and "+" or "-"
 end)
 
--- KILL SWITCH
 closeBtn.MouseButton1Click:Connect(function()
 	isAlive = false 
 	isPerfectActive = false
@@ -364,23 +353,88 @@ closeBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ============================================================
--- PÁGINAS
+-- CONTEÚDO DA ABA MAIN (Créditos)
 -- ============================================================
-
--- ABA MAIN
 local infoLabel = Instance.new("TextLabel")
-infoLabel.Size = UDim2.new(1, -6, 0, 50)
+infoLabel.Size = UDim2.new(1, -6, 0, 30)
 infoLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-infoLabel.Text = "Bem-vindo ao L Hub!\nNavegue pelas abas para ativar as funções."
-infoLabel.TextColor3 = Color3.fromRGB(180, 200, 255)
+infoLabel.Text = "Bem-vindo ao meu script"
+infoLabel.TextColor3 = Color3.fromRGB(0, 150, 255) -- Azul
 infoLabel.Font = Enum.Font.GothamMedium
-infoLabel.TextSize = 13
+infoLabel.TextSize = 14
 infoLabel.TextWrapped = true
 infoLabel.LayoutOrder = 1
 infoLabel.Parent = mainPage
 Instance.new("UICorner", infoLabel).CornerRadius = UDim.new(0, 6)
 
--- ABA FARM
+local creditsFrame = Instance.new("Frame")
+creditsFrame.Size = UDim2.new(1, -6, 0, 70)
+creditsFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+creditsFrame.LayoutOrder = 2
+creditsFrame.Parent = mainPage
+Instance.new("UICorner", creditsFrame).CornerRadius = UDim.new(0, 6)
+local creditStroke = Instance.new("UIStroke")
+creditStroke.Color = Color3.fromRGB(60, 60, 80)
+creditStroke.Parent = creditsFrame
+
+local avatarImg = Instance.new("ImageLabel")
+avatarImg.Size = UDim2.new(0, 50, 0, 50)
+avatarImg.Position = UDim2.new(0, 10, 0.5, 0)
+avatarImg.AnchorPoint = Vector2.new(0, 0.5)
+avatarImg.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+avatarImg.Parent = creditsFrame
+Instance.new("UICorner", avatarImg).CornerRadius = UDim.new(0, 25)
+local avatarStroke = Instance.new("UIStroke")
+avatarStroke.Color = Color3.fromRGB(70, 90, 200)
+avatarStroke.Thickness = 2
+avatarStroke.Parent = avatarImg
+
+task.spawn(function()
+	local success, userId = pcall(function() return Players:GetUserIdFromNameAsync("ROBZINHO666") end)
+	if success and userId then
+		local thumbSuccess, thumbUrl = pcall(function() 
+			return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150) 
+		end)
+		if thumbSuccess and thumbUrl then
+			avatarImg.Image = thumbUrl
+		end
+	end
+end)
+
+local creatorText = Instance.new("TextLabel")
+creatorText.Size = UDim2.new(1, -70, 0, 20)
+creatorText.Position = UDim2.new(0, 70, 0, 12)
+creatorText.BackgroundTransparency = 1
+creatorText.Text = "Creator"
+creatorText.TextColor3 = Color3.fromRGB(255, 255, 255)
+creatorText.Font = Enum.Font.GothamBold
+creatorText.TextSize = 14
+creatorText.TextXAlignment = Enum.TextXAlignment.Left
+creatorText.Parent = creditsFrame
+
+local nameText = Instance.new("TextLabel")
+nameText.Size = UDim2.new(1, -70, 0, 20)
+nameText.Position = UDim2.new(0, 70, 0, 32)
+nameText.BackgroundTransparency = 1
+nameText.Text = "GOD_ROB"
+nameText.TextColor3 = Color3.fromRGB(200, 200, 220)
+nameText.Font = Enum.Font.GothamMedium
+nameText.TextSize = 13
+nameText.TextXAlignment = Enum.TextXAlignment.Left
+nameText.Parent = creditsFrame
+
+task.spawn(function()
+	local tick = 0
+	while isAlive and creatorText.Parent do
+		task.wait(0.05)
+		tick = tick + 0.02
+		creatorText.TextColor3 = Color3.fromHSV(tick % 1, 1, 1)
+	end
+end)
+
+-- ============================================================
+-- CONTEÚDO DA ABA FARM
+-- ============================================================
 local autoPerfectBtn = Instance.new("TextButton")
 autoPerfectBtn.Size = UDim2.new(1, -6, 0, 45)
 autoPerfectBtn.BackgroundColor3 = OFF_COLOR
@@ -415,7 +469,29 @@ autoPopsBtn.MouseButton1Click:Connect(function()
 	autoPopsBtn.BackgroundColor3 = isPopsActive and ON_COLOR or OFF_COLOR
 end)
 
--- ABA LOJA
+-- ============================================================
+-- CONTEÚDO DA ABA BASE
+-- ============================================================
+local equipBestBtn = Instance.new("TextButton")
+equipBestBtn.Size = UDim2.new(1, -6, 0, 45)
+equipBestBtn.BackgroundColor3 = OFF_COLOR
+equipBestBtn.Text = "EquipBest: OFF"
+equipBestBtn.TextColor3 = Color3.new(1, 1, 1)
+equipBestBtn.Font = Enum.Font.GothamBold
+equipBestBtn.TextSize = 15
+equipBestBtn.LayoutOrder = 1
+equipBestBtn.Parent = basePage
+Instance.new("UICorner", equipBestBtn).CornerRadius = UDim.new(0, 8)
+
+equipBestBtn.MouseButton1Click:Connect(function()
+	isEquipBestActive = not isEquipBestActive
+	equipBestBtn.Text = "EquipBest: " .. (isEquipBestActive and "ON" or "OFF")
+	equipBestBtn.BackgroundColor3 = isEquipBestActive and ON_COLOR or OFF_COLOR
+end)
+
+-- ============================================================
+-- CONTEÚDO DA ABA LOJA
+-- ============================================================
 local autoBuyBtn = Instance.new("TextButton")
 autoBuyBtn.Size = UDim2.new(1, -6, 0, 45)
 autoBuyBtn.BackgroundColor3 = OFF_COLOR
@@ -487,7 +563,6 @@ parsedPriceLabel.TextXAlignment = Enum.TextXAlignment.Left
 parsedPriceLabel.LayoutOrder = 5
 parsedPriceLabel.Parent = shopPage
 
--- Log na tela
 log_label = Instance.new("TextLabel")
 log_label.Size = UDim2.new(1, -6, 0, 35)
 log_label.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
@@ -520,22 +595,78 @@ minPriceBox:GetPropertyChangedSignal("Text"):Connect(function()
 	end
 end)
 
--- ABA BASE (EquipBest)
-local equipBestBtn = Instance.new("TextButton")
-equipBestBtn.Size = UDim2.new(1, -6, 0, 45)
-equipBestBtn.BackgroundColor3 = OFF_COLOR
-equipBestBtn.Text = "EquipBest: OFF"
-equipBestBtn.TextColor3 = Color3.new(1, 1, 1)
-equipBestBtn.Font = Enum.Font.GothamBold
-equipBestBtn.TextSize = 15
-equipBestBtn.LayoutOrder = 1
-equipBestBtn.Parent = basePage
-Instance.new("UICorner", equipBestBtn).CornerRadius = UDim.new(0, 8)
+-- ============================================================
+-- INTRO HOLOGRÁFICA
+-- ============================================================
+task.spawn(function()
+	local introGui = Instance.new("ScreenGui")
+	introGui.Name = "LHubIntro"
+	introGui.DisplayOrder = 2147483647
+	introGui.IgnoreGuiInset = true
+	introGui.Parent = player.PlayerGui
 
-equipBestBtn.MouseButton1Click:Connect(function()
-	isEquipBestActive = not isEquipBestActive
-	equipBestBtn.Text = "EquipBest: " .. (isEquipBestActive and "ON" or "OFF")
-	equipBestBtn.BackgroundColor3 = isEquipBestActive and ON_COLOR or OFF_COLOR
+	local bgDim = Instance.new("Frame")
+	bgDim.Size = UDim2.new(1, 0, 1, 0)
+	bgDim.BackgroundColor3 = Color3.new(0, 0, 0)
+	bgDim.BackgroundTransparency = 1
+	bgDim.Parent = introGui
+	TweenService:Create(bgDim, TweenInfo.new(0.5), {BackgroundTransparency = 0.5}):Play()
+
+	local holoText = Instance.new("TextLabel")
+	holoText.Size = UDim2.new(0, 900, 0, 200)
+	holoText.Position = UDim2.new(0.5, -450, 0.5, -100)
+	holoText.BackgroundTransparency = 1
+	holoText.Text = "L HUB"
+	holoText.Font = Enum.Font.GothamBlack
+	holoText.TextSize = 180
+	holoText.TextColor3 = Color3.fromRGB(0, 255, 255)
+	holoText.TextTransparency = 1
+	holoText.Parent = introGui
+	
+	local uig = Instance.new("UIGradient")
+	uig.Color = ColorSequence.new(Color3.fromRGB(0, 255, 255), Color3.fromRGB(0, 150, 255))
+	uig.Parent = holoText
+	
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(0, 255, 255)
+	stroke.Thickness = 4
+	stroke.Transparency = 1
+	stroke.Parent = holoText
+
+	local tweenIn = TweenService:Create(holoText, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		TextTransparency = 0,
+		Size = UDim2.new(0, 1000, 0, 250),
+		Position = UDim2.new(0.5, -500, 0.5, -125)
+	})
+	tweenIn:Play()
+	
+	TweenService:Create(stroke, TweenInfo.new(0.6), {Transparency = 0}):Play()
+
+	task.wait(0.6)
+	for i = 1, 15 do
+		task.wait(0.05)
+		holoText.Position = UDim2.new(0.5, -500 + math.random(-20, 20), 0.5, -125 + math.random(-15, 15))
+		holoText.TextTransparency = math.random(0, 40) / 100
+		stroke.Thickness = math.random(2, 8)
+	end
+	
+	holoText.Position = UDim2.new(0.5, -500, 0.5, -125)
+	holoText.TextTransparency = 0
+	stroke.Thickness = 4
+	
+	task.wait(1.5)
+	local tweenOut = TweenService:Create(holoText, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		TextTransparency = 1,
+		Size = UDim2.new(0, 1200, 0, 350),
+		Position = UDim2.new(0.5, -600, 0.5, -175)
+	})
+	tweenOut:Play()
+	
+	TweenService:Create(stroke, TweenInfo.new(0.8), {Transparency = 1}):Play()
+	TweenService:Create(bgDim, TweenInfo.new(0.8), {BackgroundTransparency = 1}):Play()
+	
+	task.wait(1)
+	introGui:Destroy()
 end)
 
-print("✅ L Hub Completo carregado. O botão X encerra tudo.")
+print("✅ L Hub Completo carregado com sucesso.")
